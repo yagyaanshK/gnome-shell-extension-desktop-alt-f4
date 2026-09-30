@@ -1,0 +1,11 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
+.desktop-power-dialog { width: 390px; }
+.desktop-power-dialog .modal-dialog-content-box { spacing: 8px; }
+.desktop-power-icon { icon-size: 32px; color: #c7c7d0; margin-bottom: 4px; }
+.desktop-power-title { font-size: 22px; font-weight: bold; margin-bottom: 12px; }
+.desktop-power-row { padding: 13px 18px; border-radius: 12px; border: 2px solid transparent; text-align: left; }
+.desktop-power-row-content { spacing: 16px; }
+.desktop-power-row:hover { background-color: rgba(255,255,255,0.09); }
+.desktop-power-row:selected { background-color: -st-accent-color; color: -st-accent-fg-color; }
+.desktop-power-row:focus { border-color: rgba(255,255,255,0.35); }
+.desktop-power-hint { font-size: 11px; color: #b8b8c2; margin-top: 9px; }
