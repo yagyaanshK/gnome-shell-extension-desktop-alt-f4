@@ -55,9 +55,13 @@ updates require a choice, or the extension cannot check the dialog safely.
 Click an empty part of the desktop and press Alt+F4. In an application, Alt+F4
 continues to close that application window.
 
-This release is distributed on GitHub. It has not been approved or published on
-extensions.gnome.org. Do not bypass GNOME's version check to install it on an
-unsupported version.
+This release is distributed on GitHub. GNOME Extensions rejected the first
+submission on **1 October 2026**, citing AI-generated code and its requirement
+for a maintainer who understands and can maintain the JavaScript. It is not
+approved or listed for installation there. Addressing a linter warning alone
+does not resolve that review. See [GNOME's maintainership guidance](https://gjs.guide/extensions/review-guidelines/best-practices.html#submissions-require-maintainership).
+
+Do not bypass GNOME's version check to install it on an unsupported version.
 
 If you used a privately installed prototype, disable it in the Extensions app
 before enabling this public version. They must not run together. Public releases

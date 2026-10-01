@@ -48,7 +48,18 @@ The build script uses an explicit file allowlist and fixed ZIP timestamps.
 
 ## GNOME Extensions submission
 
-The GitHub release does not imply extensions.gnome.org approval.
+The GitHub release does not imply extensions.gnome.org approval. Version 1 was
+rejected on 1 October 2026: the reviewer cited AI-generated code and the need
+for a maintainer who understands and can debug the implementation. Do not
+resubmit solely after cosmetic edits or removing disclosure of AI assistance.
+A human maintainer needs to review and take responsibility for the code and
+address the reviewer's concerns first.
+
+Separately, Shexli reported EGO-L-003 for the dialog's destroy signal. The dialog
+was already destroyed during disable; the warning alone did not establish a
+runtime leak. The source now also tracks and explicitly disconnects that handler
+before destroying the dialog. The isolated integration test verifies the explicit
+disconnect and normal dialog cleanup. The site's Shexli check has not been rerun.
 Review the current [GNOME guidelines](https://gjs.guide/extensions/review-guidelines/review-guidelines.html)
 before uploading the release ZIP at <https://extensions.gnome.org/upload/>.
 The website requires a GNOME Extensions account and reviewer approval.

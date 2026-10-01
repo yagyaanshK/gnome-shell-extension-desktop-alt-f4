@@ -148,9 +148,11 @@ export default class DesktopAltF4 extends Extension {
             return;
         const dialog = new PowerDialog(this._actions, id => this._execute(id));
         this._dialog = dialog;
-        dialog.connect('destroy', () => {
-            if (this._dialog === dialog)
+        this._dialogDestroyId = dialog.connect('destroy', () => {
+            if (this._dialog === dialog) {
                 this._dialog = null;
+                this._dialogDestroyId = 0;
+            }
         });
         if (!dialog.open())
             dialog.destroy();
@@ -263,6 +265,9 @@ export default class DesktopAltF4 extends Extension {
             global.stage.disconnect(this._stageEventId);
         this._stageEventId = 0;
         if (this._dialog) {
+            if (this._dialogDestroyId)
+                this._dialog.disconnect(this._dialogDestroyId);
+            this._dialogDestroyId = 0;
             this._dialog.popModal();
             this._dialog.destroy();
         }

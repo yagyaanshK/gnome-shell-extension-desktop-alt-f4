@@ -58,7 +58,7 @@ export default class Test extends Extension {
         await pause(200);
         desktop.activate(global.get_current_time()); await pause(100);
         await altF4(); await tap(Clutter.KEY_Escape); await pause(200);
-        assert(!ext._dialog && requests.length===1, 'Escape cancels');
+        assert(!ext._dialog && !ext._dialogDestroyId && requests.length===1, 'Escape cancels and clears dialog handler tracking');
         desktop.activate(global.get_current_time()); await pause(100);
         key(Clutter.KEY_Alt_L,true); key(Clutter.KEY_F4,true); await pause(1100);
         assert(ext._dialog && requests.length===1, 'Holding opening Alt+F4 never powers off');
@@ -122,7 +122,16 @@ export default class Test extends Extension {
         ext._showPowerOptions();
         const lastDialog = ext._dialog;
         assert(lastDialog, 'Dialog open before disable');
+        const disconnect = lastDialog.disconnect.bind(lastDialog);
+        const destroyId = ext._dialogDestroyId;
+        let destroyHandlerDisconnected = false;
+        lastDialog.disconnect = id => {
+            if (id === destroyId)
+                destroyHandlerDisconnected = true;
+            return disconnect(id);
+        };
         ext.disable();
+        assert(destroyHandlerDisconnected && !ext._dialogDestroyId, 'Disable explicitly disconnects the dialog destroy handler');
         assert(!lastDialog.get_parent() && !ext._stageEventId, 'Disable removes modal actor and keyboard hook immediately');
         this.finish({ok:true, requests, checks:['app close', 'desktop menu', 'default selection',
             'arrows', 'Enter', 'Escape', 'held-key guard', 'second Alt+F4', 'confirmation skip', 'blocker/update/session guards', 'cancelled hook', 'native GNOME shutdown dialog', 'empty desktop', 'disable cleanup']});
