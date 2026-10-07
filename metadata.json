@@ -1,9 +1,10 @@
 {
   "uuid": "desktop-alt-f4@yagyaanshK.github.io",
   "name": "Desktop Alt+F4",
-  "description": "Open a keyboard-accessible power menu with Alt+F4 on the desktop. Choose Suspend, Restart, Power Off or Log Out with arrow keys and Enter. Press Alt+F4 again to power off, or Esc to cancel. Applications retain normal window-closing behavior. Supports GNOME 50.",
+  "description": "Open a keyboard-accessible power menu with Alt+F4 on the desktop. Choose Suspend, Restart, Power Off or Log Out with arrow keys and Enter. Press Alt+F4 again to request power-off, or Esc to cancel. GNOME handles power actions and confirmation dialogs. Applications retain normal window-closing behavior. Supports GNOME 50.",
   "shell-version": [
     "50"
   ],
-  "url": "https://github.com/yagyaanshK/gnome-shell-extension-desktop-alt-f4"
+  "url": "https://github.com/yagyaanshK/gnome-shell-extension-desktop-alt-f4",
+  "version-name": "0.2.0"
 }

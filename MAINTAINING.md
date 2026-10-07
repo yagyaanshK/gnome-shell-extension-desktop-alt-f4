@@ -11,24 +11,24 @@ focused window and GNOME is in normal session mode.
 Enter, Escape, and a second Alt+F4. It waits for release of the opening F4 before
 accepting another press, and dispatches at most one action per dialog.
 
-Suspend uses GNOME's `SystemActions`. Shutdown, reboot and logout call the local
-Session Manager. Logout uses mode 1 (no redundant confirmation), never forced
-mode 2. Shutdown/reboot attach a temporary listener to GNOME's end-session dialog.
-The listener confirms only a matching, open, ordinary dialog without application
-inhibitors, other sessions or update choices. Failed checks leave the native
-confirmation in place. The listener expires after 15 seconds and is removed on
-close, request completion, or extension disable.
+All power operations call GNOME's `SystemActions.getDefault()` methods:
+`activateSuspend`, `activateRestart`, `activatePowerOff`, and `activateLogout`.
+The selected action's capability is checked again at dispatch because it may
+change after the menu opens. GNOME owns asynchronous D-Bus communication,
+confirmation dialogs, inhibitors, and updates. The extension does not connect to
+`Main.endSessionDialog`, call its private fields, or send session-manager D-Bus
+requests itself. There are no extension-owned asynchronous power callbacks,
+cancellables, timers, or lifecycle guard flags.
 
-GNOME 50's private fields `_type`, `_applications`, `_sessions`, `_checkBox`,
-`_loginManager`, and `_confirm` are deliberately used here. Dialog types are
-logout=0, shutdown=1, restart=2, update-restart=3. Review these against each new
-GNOME version before adding it to `shell-version`. Do not treat metadata edits as
-compatibility testing. The native-dialog integration test helps catch changes.
+`disable()` restores the native close handler, disconnects the stage and dialog
+signals, releases the modal grab, destroys the dialog, and clears its references.
+Normal menu closing uses ModalDialog's animation and destroy-on-close behavior.
+Only OPENING or OPENED dialogs can dispatch an action, preventing another request
+while the dialog is closing without a separate `_done` flag.
 
-`disable()` restores the native close handler, disconnects stage and confirmation
-signals, removes timeouts, cancels outstanding D-Bus callbacks, and immediately
-removes the modal actor. Cancellation of a D-Bus call does not undo a power action
-already accepted by the session manager.
+The integration test replaces the SystemActions methods with recording stubs and
+checks that the modal grab is released before dispatch. It checks disable while
+the menu is open, no interception after disable, and another enable/open/close cycle.
 
 Another extension that replaces the same Mutter handler can conflict. There is
 no supported getter for an arbitrary prior custom handler; native behavior is
@@ -49,17 +49,15 @@ The build script uses an explicit file allowlist and fixed ZIP timestamps.
 ## GNOME Extensions submission
 
 The GitHub release does not imply extensions.gnome.org approval. Version 1 was
-rejected on 1 October 2026: the reviewer cited AI-generated code and the need
-for a maintainer who understands and can debug the implementation. Do not
-resubmit solely after cosmetic edits or removing disclosure of AI assistance.
-A human maintainer needs to review and take responsibility for the code and
-address the reviewer's concerns first.
+rejected on 1 October 2026, citing AI-generated code and maintainership. The author
+responded explaining the implementation and accepting maintenance responsibility.
+On 5 October, the reviewer requested `SystemActions` and questioned `_lifecycle`.
+Version 0.2.0, prepared on 8 October, implements both requests and retains the AI
+assistance disclosure. It intentionally restores GNOME's standard confirmations.
 
-Separately, Shexli reported EGO-L-003 for the dialog's destroy signal. The dialog
-was already destroyed during disable; the warning alone did not establish a
-runtime leak. The source now also tracks and explicitly disconnects that handler
-before destroying the dialog. The isolated integration test verifies the explicit
-disconnect and normal dialog cleanup. The site's Shexli check has not been rerun.
+Shexli previously reported EGO-L-003 for the dialog's destroy signal. The source
+tracks and explicitly disconnects that handler before destroying the dialog;
+the integration test verifies explicit disconnect and normal dialog cleanup.
 Review the current [GNOME guidelines](https://gjs.guide/extensions/review-guidelines/review-guidelines.html)
 before uploading the release ZIP at <https://extensions.gnome.org/upload/>.
 The website requires a GNOME Extensions account and reviewer approval.
@@ -67,7 +65,7 @@ The website requires a GNOME Extensions account and reviewer approval.
 The guidelines require the submitting maintainer to understand and explain the
 code, even when AI assisted development. Be transparent about that assistance;
 do not present generated code as independently authored or claim prior review.
-Reviewers may request changes to the confirmation integration or keyboard handler.
+Reviewers may request further changes to the implementation or keyboard handler.
 
 The GPL-2.0-or-later license is in each source header and LICENSE. The runtime
 imports GNOME libraries, uses symbolic icons from the system theme, and bundles

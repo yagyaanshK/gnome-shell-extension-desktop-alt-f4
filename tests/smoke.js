@@ -26,8 +26,18 @@ export default class Test extends Extension {
         assert(ext, 'Extension loaded');
         const requests = [];
         // Never allow a real power operation from this test shell.
-        ext._execute = id => requests.push(id);
-        ext._actions = {canSuspend:true, canRestart:true, canPowerOff:true, canLogout:true};
+        const record = id => {
+            assert(!ext._dialog._hasModal, 'Release modal grab before SystemActions');
+            requests.push(id);
+        };
+        const actions = {
+            canSuspend: true, canRestart: true, canPowerOff: true, canLogout: true,
+            activateSuspend: () => record('suspend'),
+            activateRestart: () => record('restart'),
+            activatePowerOff: () => record('poweroff'),
+            activateLogout: () => record('logout'),
+        };
+        ext._actions = actions;
         const keyboard = Clutter.get_default_backend().get_default_seat().create_virtual_device(Clutter.InputDeviceType.KEYBOARD_DEVICE);
         const key = (symbol, pressed) => keyboard.notify_keyval(GLib.get_monotonic_time(), symbol,
             pressed ? Clutter.KeyState.PRESSED : Clutter.KeyState.RELEASED);
@@ -72,46 +82,26 @@ export default class Test extends Extension {
             await tap(Clutter.KEY_Return); await pause(200);
             assert(requests.at(-1)===id, `Enter requests ${id}`);
         }
-        // Check confirmation behavior with a fake GNOME dialog, never real power calls.
-        const confirmed = [];
-        let opened;
-        const fake = {
-            state: 0, _type: 1, _applications: [], _sessions: [], _checkBox: {visible:false},
-            _loginManager: {getCurrentSessionProxy: async () => ({Id:'me'}),
-                listSessions: async () => [['me',1000,'test']]},
-            connect: (signal, callback) => {if (signal === 'opened') opened = callback; return signal === 'opened' ? 1 : 2;},
-            disconnect: () => {},
-            _confirm: async signal => confirmed.push(signal),
-        };
-        ext._confirmOwnRequest('poweroff', fake); await opened();
-        assert(confirmed.join() === 'ConfirmedShutdown', 'Own clean shutdown skips duplicate confirmation');
-        for (const setup of [
-            () => {fake._applications = [{}];},
-            () => {fake._applications = []; fake._checkBox.visible = true;},
-            () => {fake._checkBox.visible = false; fake._type = 2;},
-            () => {fake._type = 1; fake._loginManager.listSessions = async () => [['me',1000,'test'],['other',1001,'person']];},
-        ]) {
-            setup(); ext._confirmOwnRequest('poweroff', fake); await opened();
-            assert(confirmed.length === 1, 'Blockers, updates, other requests and sessions retain confirmation');
-        }
-        fake._loginManager.listSessions = async () => [['me',1000,'test']];
-        ext._confirmOwnRequest('poweroff', fake);
-        ext._clearConfirmation(); await opened();
-        assert(confirmed.length === 1, 'Cancelled hook cannot confirm later requests');
-        // Exercise GNOME 50's actual dialog too, with action execution stubbed.
-        const native = Main.endSessionDialog;
-        const nativeConfirmed = [];
-        native._confirm = async signal => nativeConfirmed.push(signal);
-        native._getUpdateState = async () => 'unknown';
-        native._loadSessions = async () => {};
-        native._loginManager = fake._loginManager;
-        ext._confirmOwnRequest('poweroff');
-        await native.OpenAsync([1, 0, 60, []], {
-            return_value: () => {}, return_error_literal: (...args) => {throw new Error(args.join());},
-        });
-        await pause(400);
-        assert(nativeConfirmed.join() === 'ConfirmedShutdown', 'Actual GNOME shutdown dialog confirmed correctly');
-        native._stopTimer(); native.close(true); await pause(200);
+        // A capability can change while the menu is open.
+        desktop.activate(global.get_current_time()); await pause(100); await altF4();
+        actions.canPowerOff = false;
+        const count = requests.length;
+        await tap(Clutter.KEY_Return); await pause(200);
+        assert(requests.length === count, 'Unavailable action is not dispatched');
+        // Initially unavailable actions are omitted, including second-Alt+F4 routing.
+        desktop.activate(global.get_current_time()); await pause(100); await altF4();
+        assert(!ext._dialog._options.some(option => option.id === 'poweroff'), 'Hide unavailable poweroff');
+        await altF4();
+        assert(requests.length === count && ext._dialog, 'Second Alt+F4 does not request unavailable poweroff');
+        await tap(Clutter.KEY_Escape); await pause(200);
+        actions.canPowerOff = true;
+        // Only one action is dispatched while the modal is closing.
+        desktop.activate(global.get_current_time()); await pause(100); await altF4();
+        const closingDialog = ext._dialog;
+        closingDialog._run('poweroff');
+        closingDialog._run('restart');
+        assert(requests.length === count + 1 && requests.at(-1) === 'poweroff', 'Ignore repeated activation during close');
+        await pause(200);
         desktop.delete(global.get_current_time()); await pause(300);
         Main.overview.hide(); await pause(300);
         assert(!global.display.focus_window, 'No focused application remains');
@@ -133,8 +123,16 @@ export default class Test extends Extension {
         ext.disable();
         assert(destroyHandlerDisconnected && !ext._dialogDestroyId, 'Disable explicitly disconnects the dialog destroy handler');
         assert(!lastDialog.get_parent() && !ext._stageEventId, 'Disable removes modal actor and keyboard hook immediately');
+        await altF4();
+        assert(!ext._dialog, 'Disabled extension no longer intercepts empty-desktop keys');
+        ext.enable();
+        ext._actions = actions;
+        await altF4();
+        assert(ext._dialog, 'Menu works after re-enable');
+        await tap(Clutter.KEY_Escape); await pause(200);
+        ext.disable();
         this.finish({ok:true, requests, checks:['app close', 'desktop menu', 'default selection',
-            'arrows', 'Enter', 'Escape', 'held-key guard', 'second Alt+F4', 'confirmation skip', 'blocker/update/session guards', 'cancelled hook', 'native GNOME shutdown dialog', 'empty desktop', 'disable cleanup']});
+            'arrows', 'Enter', 'Escape', 'held-key guard', 'second Alt+F4', 'SystemActions routing', 'unavailable actions', 'single dispatch', 'empty desktop', 'disable cleanup', 're-enable']});
     }
     disable() {}
 }

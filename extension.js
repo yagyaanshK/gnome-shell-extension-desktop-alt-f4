@@ -2,8 +2,6 @@
 // Copyright (C) 2026 Yagyaansh Khaneja
 
 import Clutter from 'gi://Clutter';
-import Gio from 'gi://Gio';
-import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
 import Meta from 'gi://Meta';
 import Shell from 'gi://Shell';
@@ -25,8 +23,7 @@ export const PowerDialog = GObject.registerClass(class PowerDialog extends Modal
     _init(actions, activate) {
         super._init({styleClass: 'desktop-power-dialog'});
         this._activate = activate;
-        this._done = false;
-        // The opening F4 press must be released before a second press can shut down.
+        // The opening F4 press must be released before a second press can request power-off.
         this._f4Released = false;
         this._options = OPTIONS.filter(option => actions[option.capability]);
         this._selected = Math.max(0, this._options.findIndex(option => option.id === 'poweroff'));
@@ -51,11 +48,11 @@ export const PowerDialog = GObject.registerClass(class PowerDialog extends Modal
             return row;
         });
         this.contentLayout.add_child(new St.Label({
-            text: '↑ ↓ Choose   ·   Enter Confirm   ·   Esc Cancel',
+            text: '↑ ↓ Choose   ·   Enter Select   ·   Esc Cancel',
             style_class: 'desktop-power-hint', x_align: Clutter.ActorAlign.CENTER,
         }));
         this.contentLayout.add_child(new St.Label({
-            text: 'Alt+F4 again powers off', style_class: 'desktop-power-hint',
+            text: 'Alt+F4 again opens power-off confirmation', style_class: 'desktop-power-hint',
             x_align: Clutter.ActorAlign.CENTER,
         }));
         this.addButton({label: 'Cancel', action: () => this.close()});
@@ -112,9 +109,9 @@ export const PowerDialog = GObject.registerClass(class PowerDialog extends Modal
     }
 
     _run(id) {
-        if (this._done || !this._options.some(option => option.id === id))
+        if (![ModalDialog.State.OPENED, ModalDialog.State.OPENING].includes(this.state) ||
+            !this._options.some(option => option.id === id))
             return;
-        this._done = true;
         // Release the modal grab before GNOME begins its own session-end flow.
         this.close();
         this._activate(id);
@@ -123,8 +120,6 @@ export const PowerDialog = GObject.registerClass(class PowerDialog extends Modal
 
 export default class DesktopAltF4 extends Extension {
     enable() {
-        this._lifecycle = {active: true};
-        this._pendingCalls = new Set();
         this._actions = SystemActions.getDefault();
         this._stageEventId = global.stage.connect('captured-event', (_stage, event) => {
             if (Main.actionMode === Shell.ActionMode.NORMAL && !global.display.focus_window &&
@@ -143,8 +138,24 @@ export default class DesktopAltF4 extends Extension {
         });
     }
 
+    disable() {
+        Meta.keybindings_set_custom_handler('close', null);
+        if (this._stageEventId)
+            global.stage.disconnect(this._stageEventId);
+        this._stageEventId = 0;
+        if (this._dialog) {
+            if (this._dialogDestroyId)
+                this._dialog.disconnect(this._dialogDestroyId);
+            this._dialogDestroyId = 0;
+            this._dialog.popModal();
+            this._dialog.destroy();
+        }
+        this._dialog = null;
+        this._actions = null;
+    }
+
     _showPowerOptions() {
-        if (this._dialog || this._pendingCalls.size)
+        if (this._dialog)
             return;
         const dialog = new PowerDialog(this._actions, id => this._execute(id));
         this._dialog = dialog;
@@ -160,119 +171,25 @@ export default class DesktopAltF4 extends Extension {
 
     _execute(id) {
         const option = OPTIONS.find(item => item.id === id);
-        if (!this._lifecycle?.active || !option || !this._actions[option.capability])
+        if (!option || !this._actions[option.capability])
             return;
-        const lifecycle = this._lifecycle;
-        const pending = this._pendingCalls;
         try {
-            if (id === 'suspend') {
+            switch (id) {
+            case 'suspend':
                 this._actions.activateSuspend();
-                return;
+                break;
+            case 'restart':
+                this._actions.activateRestart();
+                break;
+            case 'poweroff':
+                this._actions.activatePowerOff();
+                break;
+            case 'logout':
+                this._actions.activateLogout();
+                break;
             }
-            // Use GNOME's session-end flow, so applications are queried first.
-            // Only skip its redundant confirmation for this specific request.
-            if (id === 'poweroff' || id === 'restart')
-                this._confirmOwnRequest(id);
-            const method = {poweroff: 'Shutdown', restart: 'Reboot', logout: 'Logout'}[id];
-            const cancellable = new Gio.Cancellable();
-            pending.add(cancellable);
-            Gio.DBus.session.call('org.gnome.SessionManager', '/org/gnome/SessionManager',
-                'org.gnome.SessionManager', method,
-                id === 'logout' ? new GLib.Variant('(u)', [1]) : null,
-                null, Gio.DBusCallFlags.NONE, -1, cancellable, (connection, result) => {
-                    pending.delete(cancellable);
-                    if (lifecycle.active)
-                        this._clearConfirmation();
-                    try {
-                        connection.call_finish(result);
-                    } catch (error) {
-                        // Cancellation is a normal outcome of an inhibitor dialog.
-                        if (lifecycle.active && !cancellable.is_cancelled() &&
-                            !error.message.includes('Cancelled') && !error.message.includes('Canceled'))
-                            Main.notifyError('Power action could not complete', error.message);
-                    }
-                });
         } catch (error) {
-            this._clearConfirmation();
             Main.notifyError('Power action could not complete', error.message);
         }
-    }
-
-    _confirmOwnRequest(id, dialog = Main.endSessionDialog) {
-        this._clearConfirmation();
-        const expectedType = id === 'poweroff' ? 1 : 2;
-        const signal = id === 'poweroff' ? 'ConfirmedShutdown' : 'ConfirmedReboot';
-        this._confirmationDialog = dialog;
-        const token = {cancelled: false};
-        this._confirmationToken = token;
-        this._confirmationClosedId = dialog.connect('closed', () => this._clearConfirmation());
-        this._confirmationId = dialog.connect('opened', async () => {
-            try {
-                // Session enumeration is asynchronous in GNOME's dialog. Wait for
-                // an independent read before skipping a warning about another login.
-                const current = await dialog._loginManager.getCurrentSessionProxy();
-                const sessions = await dialog._loginManager.listSessions();
-                const otherSessions = sessions.some(([sessionId, , user]) =>
-                    sessionId !== current.Id && user !== 'gdm');
-                if (token.cancelled)
-                    return;
-                this._clearConfirmation();
-                // GNOME 50: logout=0, shutdown=1, restart=2; updates use other types.
-                if (dialog.state !== ModalDialog.State.OPENED || otherSessions ||
-                    dialog._type !== expectedType || dialog._applications.length ||
-                    dialog._checkBox.visible || dialog._sessions.length)
-                    return;
-                await dialog._confirm(signal);
-            } catch (error) {
-                // Leave GNOME's confirmation visible if its state cannot be checked.
-                if (!token.cancelled)
-                    this._clearConfirmation();
-                console.warn(`Desktop Alt+F4: keeping confirmation: ${error.message}`);
-            }
-        });
-        this._confirmationTimeout = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 15, () => {
-            this._clearConfirmation();
-            return GLib.SOURCE_REMOVE;
-        });
-    }
-
-    _clearConfirmation() {
-        if (this._confirmationToken)
-            this._confirmationToken.cancelled = true;
-        this._confirmationToken = null;
-        if (this._confirmationId) {
-            this._confirmationDialog.disconnect(this._confirmationId);
-            this._confirmationId = 0;
-        }
-        if (this._confirmationClosedId) {
-            this._confirmationDialog.disconnect(this._confirmationClosedId);
-            this._confirmationClosedId = 0;
-        }
-        this._confirmationDialog = null;
-        if (this._confirmationTimeout) {
-            GLib.Source.remove(this._confirmationTimeout);
-            this._confirmationTimeout = 0;
-        }
-    }
-
-    disable() {
-        this._lifecycle.active = false;
-        for (const cancellable of this._pendingCalls)
-            cancellable.cancel();
-        this._pendingCalls.clear();
-        Meta.keybindings_set_custom_handler('close', null);
-        if (this._stageEventId)
-            global.stage.disconnect(this._stageEventId);
-        this._stageEventId = 0;
-        if (this._dialog) {
-            if (this._dialogDestroyId)
-                this._dialog.disconnect(this._dialogDestroyId);
-            this._dialogDestroyId = 0;
-            this._dialog.popModal();
-            this._dialog.destroy();
-        }
-        this._dialog = null;
-        this._clearConfirmation();
-        this._actions = null;
     }
 }

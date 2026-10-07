@@ -21,10 +21,11 @@ Mouse selection and a Cancel button are also available. Holding the opening
 Alt+F4 press does not count as a second press. **The second press is a shutdown
 request**, not a shortcut to close this menu.
 
-Shutdown and restart go through GNOME Session Manager. The extension skips only
-the redundant ordinary confirmation for its own request. GNOME still displays
-its dialog when applications inhibit shutdown, another user session is present,
-updates require a choice, or the extension cannot check the dialog safely.
+All four operations use GNOME's `SystemActions`: `activateSuspend()`,
+`activateRestart()`, `activatePowerOff()`, and `activateLogout()`. GNOME handles
+confirmation dialogs, application inhibitors, and update choices. The extension
+does not automatically confirm shutdown, restart, or logout. **Unlike v0.1.0,
+v0.2.0 keeps the normal GNOME confirmation step after choosing a power action.**
 
 ## Compatibility
 
@@ -55,11 +56,9 @@ updates require a choice, or the extension cannot check the dialog safely.
 Click an empty part of the desktop and press Alt+F4. In an application, Alt+F4
 continues to close that application window.
 
-This release is distributed on GitHub. GNOME Extensions rejected the first
-submission on **1 October 2026**, citing AI-generated code and its requirement
-for a maintainer who understands and can maintain the JavaScript. It is not
-approved or listed for installation there. Addressing a linter warning alone
-does not resolve that review. See [GNOME's maintainership guidance](https://gjs.guide/extensions/review-guidelines/best-practices.html#submissions-require-maintainership).
+This release is distributed on GitHub. The [GNOME Extensions review](https://extensions.gnome.org/review/75786)
+has not approved it yet. Version 0.2.0 addresses the reviewer's requests to use
+`SystemActions` and remove the custom lifecycle flag. Approval is a separate step.
 
 Do not bypass GNOME's version check to install it on an unsupported version.
 
@@ -104,9 +103,10 @@ python3 tests/smoke.py
 The test starts a separate headless GNOME session with isolated HOME, XDG
 folders, D-Bus, and settings. It injects virtual keyboard events into test
 windows and **stubs all final power actions**. It covers window closing, menu
-navigation, cancellation, repeated-key handling, confirmation safeguards, the
-native GNOME confirmation dialog, and disable cleanup. Do not replace the action
-stubs with real shutdown calls.
+navigation, cancellation, repeated-key handling, routing to all four SystemActions
+methods, unavailable actions, single dispatch, disable cleanup, and re-enabling.
+The SystemActions methods are replaced with recording stubs; no real power action
+is performed. Do not replace those stubs with real shutdown calls.
 
 See [MAINTAINING.md](MAINTAINING.md) for implementation details and release checks.
 Report problems through [GitHub Issues](https://github.com/yagyaanshK/gnome-shell-extension-desktop-alt-f4/issues), including GNOME version, distribution, and reproduction steps.
